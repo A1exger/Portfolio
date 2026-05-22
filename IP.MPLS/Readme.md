@@ -1,6 +1,6 @@
-# 🌐 IP/MPLS Service Provider Lab — Full Stack Network Engineering Portfolio
+# 🌐 IP/MPLS Service Provider Lab 
 
-> **Platform:** EVE-NG | **Vendor:** Juniper (vMX / vSRX) or Cisco IOS-XE/XR  
+> **Platform:** EVE-NG | **Vendor:** Juniper (vMX / vSRX) and Cisco IOS-XE/XR  
 > **Complexity:** Advanced | **Focus:** SP Core + L3VPN + L2VPN + BGP RR Architecture
 
 ---
@@ -144,7 +144,7 @@ A telecom operator needs to deliver **enterprise connectivity services** to a cu
 ## Project Structure
 
 ```
-ip-mpls-lab/
+ip.mpls/
 ├── README.md                        ← This file
 ├── topology/
 │   ├── eve-ng-topology.png          ← Full lab diagram
@@ -211,22 +211,28 @@ ip-mpls-lab/
 
 All P/PE/RR devices run OSPF Area 0. Only loopbacks and P2P links are redistributed. No customer prefixes in IGP.
 
-**Key configuration snippet (Cisco IOS-XE):**
+**Key configuration snippet:**
 ```
-router ospf 1
- router-id 172.17.1.1
- passive-interface default
- no passive-interface GigabitEthernet0/1
- network 172.17.1.0 0.0.0.255 area 0
- network 10.10.10.0 0.0.0.255 area 0
+export OSPF-EXPORT;
+import OSPF-IMPORT;
+area 0.0.0.0 {
+    interface lo0.0;
+    interface ge-0/0/1.0 {
+        interface-type p2p;
+    }
+    interface ge-0/0/3.0 {
+        interface-type p2p;
+    }
+}
+
 ```
 
 **Verification commands to run & screenshot:**
 ```bash
-show ip ospf neighbor          # All neighbors in FULL state
-show ip ospf database          # LSA database populated
-show ip route ospf             # All loopbacks reachable via OSPF
-ping 172.17.1.4 source lo0    # PE1 → spb-PE1 loopback reachability
+show ospf neighbor                  # All neighbors in FULL state
+show ospf database                  # LSA database populated
+show ospf route                     # All loopbacks reachable via OSPF
+ping 172.17.1.4 source 172.31.50.1  # PE1 → spb-PE1 loopback reachability
 ```
 
 > 📸 **Screenshot:** `screenshots/ospf/ospf-neighbors-all.png`

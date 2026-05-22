@@ -1,6 +1,6 @@
 # 🌐 IP/MPLS Service Provider Lab 
 
-> **Platform:** EVE-NG | **Vendor:** Juniper (vMX / vSRX) and Cisco IOS-XE/XR  
+> **Platform:** EVE-NG | **Vendor:** Juniper (vMX) and Cisco IOS-XE/XR  
 > **Complexity:** Advanced | **Focus:** SP Core + L3VPN + L2VPN + BGP RR Architecture
 
 ---
@@ -22,8 +22,7 @@
 7. [Verification & Troubleshooting](#verification--troubleshooting)
 8. [Key Learnings & Design Decisions](#key-learnings--design-decisions)
 9. [Screenshots & Evidence](#screenshots--evidence)
-10. [How to Reproduce This Lab](#how-to-reproduce-this-lab)
-11. [References](#references)
+10. [References](#references)
 
 ---
 
@@ -492,7 +491,7 @@ P routers (msk-P-1, msk-P-2) only perform label switching — they never hold VR
 
 ### Why LDP Over RSVP-TE in This Lab?
 
-LDP was chosen for simplicity and to focus on VPN service delivery rather than traffic engineering. In production, RSVP-TE with explicit paths would be used for bandwidth guarantees and fast reroute (FRR). This is a planned extension of this lab.
+LDP was chosen for simplicity and to focus on VPN service delivery rather than traffic engineering. In production, RSVP-TE with explicit paths would be used for bandwidth guarantees and fast reroute (FRR).
 
 ### Router-on-a-Stick Trade-offs
 
@@ -519,37 +518,6 @@ RoaS is used at CE sites to simulate a realistic small-enterprise setup with a s
 
 ---
 
-## How to Reproduce This Lab
-
-### Prerequisites
-
-- EVE-NG Community or Pro installed
-- Router image: Cisco IOSv `vios-adventerprisek9-m.vmdk.SPA.156-x` or equivalent
-- Switch image: Cisco IOSvL2 `vios_l2-adventerprisek9-m.vmdk`
-- Minimum host RAM: 16 GB
-- EVE-NG Web UI access
-
-### Steps
-
-```bash
-# 1. Import the EVE-NG lab file
-File > Import > upload lab-ip-mpls.unl
-
-# 2. Start all nodes (allow ~3 min to boot)
-# 3. Apply configs from /configs/ directory to each node
-# 4. Verify connectivity using the checklist above
-```
-
-### Config Application (EVE-NG CLI method)
-
-```bash
-# SSH into EVE-NG host, then telnet to node console
-telnet 127.0.0.1 <node-port>
-# Paste config from configs/<device>/running-config.txt
-```
-
----
-
 ## References
 
 - [RFC 4364 — BGP/MPLS IP Virtual Private Networks (L3VPN)](https://www.rfc-editor.org/rfc/rfc4364)
@@ -564,9 +532,9 @@ telnet 127.0.0.1 <node-port>
 
 ## Author
 
-**[Your Name]**  
-Network Engineer | CCNP / JNCIP candidate  
-[LinkedIn](https://linkedin.com/in/yourprofile) · [GitHub](https://github.com/yourusername)
+**[Aleksandr Gerasimov]**  
+Network Engineer   
+[LinkedIn](https://linkedin.com/in/a1exger) 
 
 ---
 

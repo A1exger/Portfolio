@@ -46,7 +46,7 @@ A telecom operator needs to deliver **enterprise connectivity services** to a cu
 | IGP / Underlay | OSPF Area 0, Loopback reachability |
 | MPLS Data Plane | LDP, Label Switched Paths (LSPs) |
 | BGP Control Plane | iBGP, Route Reflectors, MP-BGP (VPNv4) |
-| VPN Services | L3VPN (VRF-Lite), L2VPN (EoMPLS or VPLS) |
+| VPN Services | L3VPN, L2VPN (EoMPLS) |
 | Customer Edge | VLAN trunking, 802.1Q, Router-on-a-Stick (RoaS) |
 | Operations | Verification commands, traffic tracing, fault isolation |
 

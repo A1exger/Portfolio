@@ -235,7 +235,8 @@ show ospf route                     # All loopbacks reachable via OSPF
 ping 172.17.1.4 source 172.31.50.1  # PE1 → spb-PE1 loopback reachability
 ```
 
-> 📸 **Screenshot:** `[img]https://github.com/A1exger/Portfolio/blob/main/IP.MPLS/OSPF.png[/img]`
+> 📸 **Screenshot:** `<img width="630" height="815" alt="image" src="https://github.com/user-attachments/assets/83c397ed-e541-41b6-b32b-d8b828190fd7" />
+`
 
 ---
 

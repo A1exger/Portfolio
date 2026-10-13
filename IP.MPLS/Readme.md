@@ -120,7 +120,7 @@ graph TB
 | spb-RR-2 | Route reflector | 172.31.51.1/32 |
 | msk-P-1 | P router | 172.17.1.1/32 |
 | msk-P-2 | P router | 172.17.1.3/32 |
-| spb-P-1 | P router | <!-- TODO: spb-P-1 loopback --> |
+| spb-P-1 | P router | 172.17.1.5/32 |
 | spb-P-2 | P router | 172.17.1.6/32 |
 | msk-PE-1 | PE, Moscow | 172.17.1.2/32 |
 | spb-PE-1 | PE, Saint Petersburg | 172.17.1.4/32 |

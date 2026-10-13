@@ -53,7 +53,7 @@ All three services reach the customer over a single 802.1Q trunk per site, one V
 | MPLS | LDP on all core links, targeted LDP for the pseudowire, LSP verification with MPLS OAM |
 | BGP | iBGP through two route reflectors with separate cluster IDs, MP-BGP `inet-vpn`, Route Target Constraint, BFD |
 | VPN services | L3VPN (VRF, RD/RT, `vrf-table-label`), L2VPN (LDP-signalled pseudowire, Ethernet VLAN mode) |
-| Internet | Customer eBGP sessions with inbound prefix filtering |
+| Internet | Customer eBGP sessions with an inbound prefix filter, a prefix limit and a community-based outbound policy |
 | Security | Routing Engine protection filter with policers, counters and logging |
 | Operations | Layer-by-layer verification, packet-level troubleshooting, isolating a platform limitation |
  
@@ -61,7 +61,7 @@ All three services reach the customer over a single 802.1Q trunk per site, one V
  
 ## Topology
  
-<!-- TODO: add the EVE-NG screenshot, e.g. ![EVE-NG topology](screenshots/topology.png) -->
+![EVE-NG topology](screenshots/topology/topology.png)
  
 Physical topology: core links and PE–CE trunks.
  
@@ -75,7 +75,7 @@ graph LR
     mskRR["msk-RR-1<br/>172.31.50.1"]
   end
   subgraph SPB [Saint Petersburg]
-    spbP1["spb-P-1"]
+    spbP1["spb-P-1<br/>172.17.1.5"]
     spbP2["spb-P-2<br/>172.17.1.6"]
     spbRR["spb-RR-2<br/>172.31.51.1"]
     spbPE["spb-PE-1<br/>172.17.1.4"]
@@ -192,10 +192,14 @@ Verification:
 ```
 show ospf neighbor                    # every core neighbor in Full
 show ospf route                       # loopbacks of all SP routers
-ping 172.17.1.4 source 172.17.1.2     # msk-PE-1 -> spb-PE-1, loopback to loopback
+ping 172.17.1.4 source 172.31.50.1    # msk-RR-1 -> spb-PE-1, loopback to loopback
 ```
  
-<img width="630" height="815" alt="OSPF verification" src="https://github.com/user-attachments/assets/83c397ed-e541-41b6-b32b-d8b828190fd7" />
+Output on msk-RR-1, captured at an earlier stage of the lab:
+ 
+<!-- TODO: re-capture on the current topology and replace screenshots/ospf/OSPF.png -->
+ 
+<img width="630" alt="OSPF verification on msk-RR-1" src="screenshots/ospf/OSPF.png" />
 ### MPLS: LDP
  
 MPLS and LDP run on every core link. `ldp interface lo0.0` enables targeted LDP between PE loopbacks, which signals the pseudowire.
@@ -364,15 +368,25 @@ ge-0/0/1.100       *[L2CKT/7] 00:32:43, metric2 1
 - Pseudowire label 299776 arriving from the core is popped and the frame leaves via ge-0/0/1.100. Both PEs happened to allocate the same value, 299776, for their side of the pseudowire.
 ### Internet access: customer eBGP
  
-msk-PE-1:
+msk-PE-1 limits the session to 10 prefixes and sends the customer only routes tagged with the `CLIENTS` community:
  
 ```
 set interfaces ge-0/0/1 unit 300 description Internet
 set interfaces ge-0/0/1 unit 300 vlan-id 300
 set interfaces ge-0/0/1 unit 300 family inet address 72.64.35.121/30
+set policy-options policy-statement CLIENTS-OUT term CLIENTS from community CLIENTS
+set policy-options policy-statement CLIENTS-OUT term CLIENTS then accept
+set policy-options policy-statement CLIENTS-OUT term REJECT then reject
 set protocols bgp group CLIENTS type external
+set protocols bgp group CLIENTS family inet unicast prefix-limit maximum 10
+set protocols bgp group CLIENTS family inet unicast prefix-limit teardown 80 idle-timeout 10
+set protocols bgp group CLIENTS export CLIENTS-OUT
 set protocols bgp group CLIENTS neighbor 72.64.35.122 peer-as 4165
 ```
+ 
+<!-- TODO: add the community CLIENTS definition and the import policy that attaches it -->
+ 
+At 80 % of the limit the router logs a warning; above 10 prefixes it tears the session down and keeps it idle for 10 minutes. Without `CLIENTS-OUT` the PE would send the customer every active BGP route it has, including other customers' link subnets.
  
 spb-PE-1 accepts only the prefix assigned to the customer:
  
@@ -410,8 +424,8 @@ Verification:
  
 ```
 show bgp summary
-show route receive-protocol bgp 31.120.12.2       # what the customer announces
-show route advertising-protocol bgp 31.120.12.2   # what the customer receives
+show route receive-protocol bgp 31.120.12.2       # spb-PE-1: what the customer announces
+show route advertising-protocol bgp 72.64.35.122  # msk-PE-1: what CLIENTS-OUT lets through
 ```
  
 <!-- TODO: add a "Customer sites" section from the CE configs (VLANs, router-on-a-stick, VPCs) -->
@@ -423,7 +437,7 @@ The `PROTECT-RE` filter on lo0.0 admits only the control and management traffic 
 | Term | Match | Action |
 |---|---|---|
 | BGP | TCP 179 | accept |
-| OSPF | protocol OSPF | accept |
+| OSPF | protocol OSPF, source in `INFRA` | accept |
 | LDP | TCP and UDP 646 | accept |
 | BFD | UDP 3784, 4784 | accept |
 | MPLS-OAM | UDP 3503 | accept |
@@ -432,9 +446,7 @@ The `PROTECT-RE` filter on lo0.0 admits only the control and management traffic 
 | REMOTE-ACCESS | TCP 22, 23 | accept |
 | DENY-ALL | everything else | count, log, discard |
  
-On the route reflectors the LDP and MPLS-OAM terms are omitted.
- 
-The original design restricted every term by source address. On this vMX build source matching does not work for OSPF hellos, so the OSPF and LDP terms match on protocol and port only; source restriction still works for unicast terms such as BGP. See [case study 3](#3-all-protocols-down-after-hardening-the-lo0-filter).
+`INFRA` lists the core link subnets (10.10.10.0/24), the loopback ranges (172.17.1.0/24, 172.31.50.0/23) and the link-local multicast range 224.0.0.0/24. The last entry is a workaround for this vMX build, which checks the source condition of multicast packets against their group address; see [case study 3](#3-all-protocols-down-after-hardening-the-lo0-filter).
  
 Verification:
  
@@ -528,14 +540,15 @@ The OSPF term accepted OSPF from 10.10.10.0/24, so 10.10.10.41 should have match
  
 | Test | Result |
 |---|---|
-| OSPF term with `source-prefix-list` | hellos dropped |
+| OSPF term with `source-prefix-list INFRA` | hellos dropped |
 | OSPF term with `source-address 10.10.10.0/24` | hellos dropped |
 | OSPF term without a source condition | adjacency Full |
 | BGP term with `source-address` (unicast) | sessions stay Established |
+| `224.0.0.0/24` added to `INFRA`, OSPF term with `source-prefix-list INFRA` | adjacency Full |
  
-**Root cause.** On vMX 14.1R1 with its software PFE, source matching in the lo0 filter did not work for OSPF hellos, which are multicast to 224.0.0.5, while it worked for BGP, which is unicast. The previous filter never exposed this because its working terms matched only protocol and port.
+**Root cause.** On vMX 14.1R1 with its software PFE, the source condition of a lo0 filter term is not checked against the real source of multicast packets. The hellos came from 10.10.10.41, which was already in `INFRA`, yet they matched only after the group range 224.0.0.0/24 was added to the list. The only 224.0.0.x address in a hello is its destination, so in effect the PFE checks the source condition against the group address. Unicast control traffic such as BGP is matched correctly. The previous filter never exposed this because its working terms matched only protocol and port.
  
-**Fix.** The OSPF and LDP terms match on protocol and port only; LDP discovery hellos are multicast too, so LDP is treated the same way as OSPF. Unicast terms can still be restricted by source.
+**Fix.** `INFRA` now also contains 224.0.0.0/24, and the OSPF term keeps its `source-prefix-list`. The trade-off: on this build multicast hellos are effectively not filtered by source. On a real MX the extra entry would be harmless, because no packet carries a multicast source address.
  
 **Lessons.**
  
@@ -548,16 +561,17 @@ The OSPF term accepted OSPF from 10.10.10.0/24, so 10.10.10.41 should have match
  
 - **Slow data plane start.** The Routing Engine boots first; FPC 0 and PIC 0 need several more minutes. Until PIC 0 is online, `ge-` interfaces do not exist. Check with `show chassis fpc pic-status`.
 - **FPC watchdog panics.** Repeated `fpc0 PANIC ... Watchdog fired` messages mean the VM lacks CPU, RAM or KVM acceleration. Give the node more resources, and if EVE-NG itself runs in a VM, enable nested virtualization.
-- **lo0 filter limitation.** Source matching fails for OSPF hellos; see [case study 3](#3-all-protocols-down-after-hardening-the-lo0-filter).
+- **lo0 filter and multicast.** The source condition of a filter term is checked against the group address of multicast hellos, not their real source; see [case study 3](#3-all-protocols-down-after-hardening-the-lo0-filter).
 - **Pasting configuration.** Long `set` blocks pasted into the EVE-NG console can silently lose lines. Use `load set terminal`, finish with Ctrl+D, and check `show | compare` before committing.
 ---
  
 ## Roadmap
  
 - [ ] Bring spb-RR-2 back into service and test RR failover.
-- [ ] Customer edge hardening: inbound prefix filter on msk-PE-1, explicit export policy towards customers, prefix limits, uRPF and an infrastructure ACL.
+- [ ] Inbound prefix filter on msk-PE-1, as on spb-PE-1.
+- [ ] OSPF authentication: on this build the lo0 filter cannot check the real source of multicast hellos.
 - [ ] PE–CE routing inside the VRF (static or eBGP) to carry the customer LANs.
-- [ ] Move to vJunos-router or a newer vMX and restore source-restricted OSPF and LDP terms.
+- [ ] Repeat the lo0 filter tests on vJunos-router or a newer vMX.
 - [ ] RSVP-TE with fast reroute as an alternative transport.
 ---
  
@@ -585,3 +599,4 @@ The OSPF term accepted OSPF from 10.10.10.0/24, so 10.10.10.41 should have match
 ---
  
 *Lab environment built for education and portfolio purposes. Core addressing uses RFC 1918 space; customer-facing "public" prefixes are arbitrary values used only inside the lab.*
+ 

@@ -1,541 +1,587 @@
-# 🌐 IP/MPLS Service Provider Lab 
-
-> **Platform:** EVE-NG | **Vendor:** Juniper (vMX) and Cisco IOS-XE/XR  
-> **Complexity:** Advanced | **Focus:** SP Core + L3VPN + L2VPN + BGP RR Architecture
-
+# IP/MPLS Service Provider Lab
+ 
+> **Platform:** EVE-NG | **SP routers:** Juniper vMX, Junos 14.1R1 | **CE:** Cisco IOS, VIOS-ADVENTERPRISEK9-M Version 15.5(3)M | **AS:** 51300  
+> **Focus:** BGP-free MPLS core, route reflectors, L3VPN, L2VPN pseudowire, Internet access, Routing Engine protection
+ 
+ 
+A two-site service provider network (Moscow and Saint Petersburg) built on Juniper vMX in EVE-NG. Over one MPLS core the operator delivers three services to the customer **AstroGlass**: a Layer 3 VPN, a Layer 2 pseudowire and Internet access over eBGP.
+ 
+This README covers the design, the configuration of every layer, how each layer is verified, and the real problems found while building the lab.
+ 
+<!-- TODO: upload sanitized configs to configs/ (show configuration | display set | except encrypted-password) and screenshots to screenshots/, then link them in the sections below -->
+ 
 ---
-
-## 📋 Table of Contents
-
-1. [Project Overview](#project-overview)
-2. [Lab Topology](#lab-topology)
-3. [Network Addressing Table](#network-addressing-table)
-4. [Technology Stack](#technology-stack)
-5. [Project Structure](#project-structure)
-6. [Implementation Guide](#implementation-guide)
-   - [Phase 1 — Underlay: OSPF IGP](#phase-1--underlay-ospf-igp)
-   - [Phase 2 — MPLS LDP Label Distribution](#phase-2--mpls-ldp-label-distribution)
-   - [Phase 3 — BGP Route Reflector Architecture](#phase-3--bgp-route-reflector-architecture)
-   - [Phase 4 — L3VPN (MPLS VRF)](#phase-4--l3vpn-mpls-vrf)
-   - [Phase 5 — L2VPN (VPLS / EoMPLS)](#phase-5--l2vpn-vpls--eompls)
-   - [Phase 6 — Customer Edge: VLANs & Router-on-a-Stick](#phase-6--customer-edge-vlans--router-on-a-stick)
-7. [Verification & Troubleshooting](#verification--troubleshooting)
-8. [Key Learnings & Design Decisions](#key-learnings--design-decisions)
-9. [Screenshots & Evidence](#screenshots--evidence)
-10. [References](#references)
-
+ 
+## Contents
+ 
+- [Services](#services)
+- [What the lab demonstrates](#what-the-lab-demonstrates)
+- [Topology](#topology)
+- [Addressing](#addressing)
+- [Design decisions](#design-decisions)
+- [Implementation and verification](#implementation-and-verification)
+  - [IGP: OSPF](#igp-ospf)
+  - [MPLS: LDP](#mpls-ldp)
+  - [BGP: route reflectors](#bgp-route-reflectors)
+  - [L3VPN](#l3vpn)
+  - [L2VPN: LDP-signalled pseudowire](#l2vpn-ldp-signalled-pseudowire)
+  - [Internet access: customer eBGP](#internet-access-customer-ebgp)
+  - [Routing Engine protection](#routing-engine-protection)
+- [Troubleshooting case studies](#troubleshooting-case-studies)
+- [Platform notes: vMX 14.1 on EVE-NG](#platform-notes-vmx-141-on-eve-ng)
+- [Roadmap](#roadmap)
+- [References](#references)
 ---
-
-## Project Overview
-
-This lab simulates a **production-grade Service Provider network** connecting two customer sites — **Moscow (MSK)** and **Saint Petersburg (SPB)** — through a full IP/MPLS core. The goal is to demonstrate end-to-end service delivery using industry-standard SP technologies.
-
-### Business Scenario
-
-A telecom operator needs to deliver **enterprise connectivity services** to a customer with offices in Moscow and Saint Petersburg. The SP network must provide:
-
-- **Layer 3 VPN (L3VPN)** — routed inter-site connectivity with full route isolation per customer VRF
-- **Layer 2 VPN (L2VPN)** — transparent Ethernet service between sites (as if on the same LAN)
-- **High availability** — redundant P routers and dual Route Reflectors
-- **Scalable BGP design** — RR-based iBGP to avoid full-mesh requirement
-
-### Skills Demonstrated
-
-| Domain | Technologies |
+ 
+## Services
+ 
+| Service | Implementation | Moscow (msk-PE-1) | Saint Petersburg (spb-PE-1) |
+|---|---|---|---|
+| L3VPN | VRF `AstroGlass`, MP-BGP `inet-vpn` | ge-0/0/1.200, VLAN 200 | ge-0/0/1.250, VLAN 250 |
+| L2VPN | `l2circuit`, VC ID 100 | ge-0/0/1.100, VLAN 100 | ge-0/0/1.100, VLAN 100 |
+| Internet | eBGP with the customer | ge-0/0/1.300, VLAN 300, AS 4165 | ge-0/0/1.350, VLAN 350, AS 32500 |
+ 
+All three services reach the customer over a single 802.1Q trunk per site, one VLAN per service.
+ 
+---
+ 
+## What the lab demonstrates
+ 
+| Area | Implemented |
 |---|---|
-| IGP / Underlay | OSPF Area 0, Loopback reachability |
-| MPLS Data Plane | LDP, Label Switched Paths (LSPs) |
-| BGP Control Plane | iBGP, Route Reflectors, MP-BGP (VPNv4) |
-| VPN Services | L3VPN, L2VPN (EoMPLS) |
-| Customer Edge | VLAN trunking, 802.1Q, Router-on-a-Stick (RoaS) |
-| Operations | Verification commands, traffic tracing, fault isolation |
-
+| IGP | OSPFv2 area 0, point-to-point core links, IGP metric to select the primary path |
+| MPLS | LDP on all core links, targeted LDP for the pseudowire, LSP verification with MPLS OAM |
+| BGP | iBGP through two route reflectors with separate cluster IDs, MP-BGP `inet-vpn`, Route Target Constraint, BFD |
+| VPN services | L3VPN (VRF, RD/RT, `vrf-table-label`), L2VPN (LDP-signalled pseudowire, Ethernet VLAN mode) |
+| Internet | Customer eBGP sessions with inbound prefix filtering |
+| Security | Routing Engine protection filter with policers, counters and logging |
+| Operations | Layer-by-layer verification, packet-level troubleshooting, isolating a platform limitation |
+ 
 ---
-
-## Lab Topology
-
+ 
+## Topology
+ 
+<!-- TODO: add the EVE-NG screenshot, e.g. ![EVE-NG topology](screenshots/topology.png) -->
+ 
+Physical topology: core links and PE–CE trunks.
+ 
+```mermaid
+graph LR
+  subgraph MSK [Moscow]
+    mskCE["msk-router-1<br/>CE"]
+    mskPE["msk-PE-1<br/>172.17.1.2"]
+    mskP1["msk-P-1<br/>172.17.1.1"]
+    mskP2["msk-P-2<br/>172.17.1.3"]
+    mskRR["msk-RR-1<br/>172.31.50.1"]
+  end
+  subgraph SPB [Saint Petersburg]
+    spbP1["spb-P-1"]
+    spbP2["spb-P-2<br/>172.17.1.6"]
+    spbRR["spb-RR-2<br/>172.31.51.1"]
+    spbPE["spb-PE-1<br/>172.17.1.4"]
+    spbCE["spb-router-1<br/>CE"]
+  end
+  mskCE ---|VLAN 100 / 200 / 300| mskPE
+  mskPE ---|metric 100| mskP1
+  mskPE --- mskP2
+  mskRR --- mskP1
+  mskRR --- mskP2
+  mskP1 --- mskP2
+  mskP1 --- spbP1
+  mskP2 --- spbP2
+  spbP1 --- spbP2
+  spbRR --- spbP1
+  spbRR --- spbP2
+  spbP1 --- spbPE
+  spbP2 --- spbPE
+  spbPE ---|VLAN 100 / 250 / 350| spbCE
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              IP/MPLS CORE                                   │
-│                                                                             │
-│          msk-RR-1                              spb-RR-2                     │
-│       Lo: 172.31.50.1                       Lo: 172.31.51.1                 │
-│              │  │                                │  │                       │
-│              │  └──────────── msk-P-1 ───────────┘  │                      │
-│              │             Lo: 172.17.1.1            │                      │
-│         msk-PE-1 ──────── msk-P-2 ─────────── spb-PE-1                     │
-│       Lo: 172.17.1.2   Lo: 172.17.1.3      Lo: 172.17.1.4                  │
-└──────────┬──────────────────────────────────────────────┬───────────────────┘
-           │                                              │
-    ┌──────▼──────┐                              ┌────────▼──────┐
-    │   MOSCOW    │                              │      SPB      │
-    │             │                              │               │
-    │ msk-router-1│                              │ spb-router-1  │
-    │ msk-switch-1│                              │ spb-switch-1  │
-    │     VPC     │                              │     VPC       │
-    └─────────────┘                              └───────────────┘
+ 
+BGP control plane. P routers do not run BGP.
+ 
+```mermaid
+graph TB
+  mskRR["msk-RR-1<br/>cluster 172.31.50.1"] ---|non-client iBGP| spbRR["spb-RR-2<br/>cluster 172.31.51.1"]
+  mskPE["msk-PE-1"] --- mskRR
+  mskPE --- spbRR
+  spbPE["spb-PE-1"] --- mskRR
+  spbPE --- spbRR
 ```
-
-> 📸 **See:** [`/screenshots/topology/eve-ng-topology.png`](#) — Full EVE-NG canvas screenshot
-
+ 
 ---
-
-## Network Addressing Table
-
-### Loopback Interfaces (Router-IDs & BGP Peering)
-
-| Device | Loopback0 | Role |
+ 
+## Addressing
+ 
+### Loopbacks
+ 
+| Device | Role | lo0 |
 |---|---|---|
-| msk-RR-1 | 172.31.50.1/32 | BGP Route Reflector (MSK) |
-| spb-RR-2 | 172.31.51.1/32 | BGP Route Reflector (SPB) |
-| msk-P-1 | 172.17.1.1/32 | MPLS P Router |
-| msk-PE-1 | 172.17.1.2/32 | PE Router — Moscow CE |
-| msk-P-2 | 172.17.1.3/32 | MPLS P Router |
-| spb-PE-1 | 172.17.1.4/32 | PE Router — SPB CE |
-
-### Point-to-Point Links (OSPF / LDP)
-
-| Link | Subnet | Device A | Interface | Device B | Interface |
-|---|---|---|---|---|---|
-| PE1↔P1 | 10.10.10.0/30 | msk-PE-1 | em2/ge-0/0/0 | msk-P-1 | em2/ge-0/0/0 |
-| PE1↔P2 | 10.10.10.4/30 | msk-PE-1 | em4/ge-0/0/2 | msk-P-2 | em4/ge-0/0/2 |
-| *(add all P-to-P and PE-to-RR links)* | | | | | |
-
-### Customer Edge Addressing
-
-| Site | Device | Interface | IP | VLAN |
-|---|---|---|---|---|
-| Moscow | msk-router-1 | Gi0/1.10 | *(define)* | 10 |
-| Moscow | msk-switch-1 | Gi1/3 trunk | — | 10, 20 |
-| SPB | spb-router-1 | Gi0/1.10 | *(define)* | 10 |
-| SPB | spb-switch-1 | Gi1/2 trunk | — | 10, 20 |
-
----
-
-## Technology Stack
-
-### EVE-NG Environment
-
-- **Platform:** EVE-NG Community / Professional
-- **Node images:** Cisco IOSv / IOS-XE / Juniper vMX *(specify exact image version)*
-- **Host OS:** Ubuntu 20.04 LTS
-- **RAM per node:** ~512MB–1GB
-
-### Protocols Used
-
-```
-┌─────────────────────────────────────────────────┐
-│  CONTROL PLANE                                  │
-│  ├── OSPF (Area 0) — IGP underlay               │
-│  ├── LDP — MPLS label distribution              │
-│  ├── iBGP + Route Reflectors                    │
-│  └── MP-BGP (VPNv4 / L2VPN EVPN or LDP-based)  │
-│                                                 │
-│  DATA PLANE                                     │
-│  ├── MPLS Label Switching (P routers)           │
-│  ├── VRF — customer traffic isolation           │
-│  └── 802.1Q VLAN trunking (CE switches)         │
-└─────────────────────────────────────────────────┘
-```
-
----
-
-## Project Structure
-
-```
-ip.mpls/
-├── README.md                        ← This file
-├── topology/
-│   ├── eve-ng-topology.png          ← Full lab diagram
-│   ├── addressing-table.xlsx        ← Complete IP plan
-│   └── topology.drawio              ← Editable diagram source
-│
-├── configs/
-│   ├── msk-RR-1/
-│   │   └── running-config.txt
-│   ├── spb-RR-2/
-│   │   └── running-config.txt
-│   ├── msk-P-1/
-│   │   └── running-config.txt
-│   ├── msk-P-2/
-│   │   └── running-config.txt
-│   ├── msk-PE-1/
-│   │   └── running-config.txt
-│   ├── spb-PE-1/
-│   │   └── running-config.txt
-│   ├── msk-router-1/
-│   │   └── running-config.txt
-│   └── spb-router-1/
-│       └── running-config.txt
-│
-├── screenshots/
-│   ├── topology/
-│   │   └── eve-ng-topology.png
-│   ├── ospf/
-│   │   ├── ospf-neighbors-all.png
-│   │   └── ospf-database.png
-│   ├── mpls/
-│   │   ├── ldp-neighbors.png
-│   │   ├── mpls-forwarding-table-PE1.png
-│   │   └── mpls-forwarding-table-P1.png
-│   ├── bgp/
-│   │   ├── bgp-summary-RR1.png
-│   │   ├── bgp-vpnv4-table.png
-│   │   └── bgp-rr-clients.png
-│   ├── l3vpn/
-│   │   ├── vrf-table-PE1.png
-│   │   ├── vrf-table-PE2.png
-│   │   └── ping-msk-to-spb.png
-│   ├── l2vpn/
-│   │   ├── l2vpn-status.png
-│   │   └── ping-l2-msk-to-spb.png
-│   └── ce/
-│       ├── vlan-config-msk-switch.png
-│       ├── roas-msk-router.png
-│       └── vpc-ping-end-to-end.png
-│
-└── docs/
-    ├── design-rationale.md          ← Why these design choices
-    ├── troubleshooting-log.md       ← Issues faced & fixed
-    └── traffic-flow-walkthrough.md  ← Packet walk through the MPLS core
-```
-
----
-
-## Implementation Guide
-
-### Phase 1 — Underlay: OSPF IGP
-
-**Objective:** Establish full loopback reachability across all SP routers (RR, P, PE).
-
-All P/PE/RR devices run OSPF Area 0. Only loopbacks and P2P links are redistributed. No customer prefixes in IGP.
-
-**Key configuration snippet:**
-```
-export OSPF-EXPORT;
-import OSPF-IMPORT;
-area 0.0.0.0 {
-    interface lo0.0;
-    interface ge-0/0/1.0 {
-        interface-type p2p;
-    }
-    interface ge-0/0/3.0 {
-        interface-type p2p;
-    }
-}
-
-```
-
-**Verification commands to run & screenshot:**
-```bash
-show ospf neighbor                  # All neighbors in FULL state
-show ospf database                  # LSA database populated
-show ospf route                     # All loopbacks reachable via OSPF
-ping 172.17.1.4 source 172.31.50.1  # PE1 → spb-PE1 loopback reachability
-```
-
-> 📸 **Screenshot:** <img width="630" height="815" alt="image" src="https://github.com/user-attachments/assets/83c397ed-e541-41b6-b32b-d8b828190fd7" />
-
-
----
-
-### Phase 2 — MPLS LDP Label Distribution
-
-**Objective:** Enable MPLS label switching on all P2P links in the SP core.
-
-LDP uses loopbacks as router-IDs. Transport addresses must match OSPF reachability.
-
-**Key configuration snippet:**
-```
-mpls ip
-mpls label protocol ldp
-mpls ldp router-id Loopback0 force
-
-interface GigabitEthernet0/1
- mpls ip
-```
-
-**Verification commands to run & screenshot:**
-```bash
-show mpls ldp neighbor             # LDP sessions established
-show mpls ldp bindings             # Label bindings per prefix
-show mpls forwarding-table         # LFIB populated
-traceroute mpls ipv4 172.17.1.4/32 # LSP trace MSK-PE1 → SPB-PE1
-```
-
-> 📸 **Screenshots:** `screenshots/mpls/ldp-neighbors.png`, `mpls-forwarding-table-PE1.png`
-
----
-
-### Phase 3 — BGP Route Reflector Architecture
-
-**Objective:** Build scalable iBGP using Route Reflectors instead of full-mesh. Dual RR design (msk-RR-1 + spb-RR-2) for redundancy.
-
-**Design rationale:**
-
-Without RR, N routers need N*(N-1)/2 iBGP sessions. With 6 SP nodes that is 15 sessions. RR reduces this to N client sessions per reflector and eliminates the scaling problem entirely.
-
-**BGP topology:**
-```
-msk-RR-1 (172.31.50.1) ←→ spb-RR-2 (172.31.51.1)  [RR peering]
-       ↕                          ↕
-  [RR Clients]               [RR Clients]
-  msk-PE-1                   spb-PE-1
-  msk-P-1                    msk-P-2
-```
-
-**Key configuration snippet (Route Reflector):**
-```
-router bgp 65000
- bgp router-id 172.31.50.1
- bgp cluster-id 1
- neighbor RR-CLIENTS peer-group
- neighbor RR-CLIENTS remote-as 65000
- neighbor RR-CLIENTS update-source Loopback0
- neighbor RR-CLIENTS route-reflector-client
- address-family vpnv4
-  neighbor RR-CLIENTS activate
-  neighbor RR-CLIENTS send-community extended
-```
-
-**Key configuration snippet (PE client):**
-```
-router bgp 65000
- bgp router-id 172.17.1.2
- neighbor 172.31.50.1 remote-as 65000
- neighbor 172.31.50.1 update-source Loopback0
- address-family vpnv4
-  neighbor 172.31.50.1 activate
-  neighbor 172.31.50.1 send-community extended
-```
-
-**Verification commands to run & screenshot:**
-```bash
-show bgp vpnv4 unicast all summary      # All peers Established, prefixes received
-show bgp vpnv4 unicast all neighbors X.X.X.X advertised-routes
-show bgp vpnv4 unicast all             # Full VPNv4 table on RR
-```
-
-> 📸 **Screenshots:** `screenshots/bgp/bgp-summary-RR1.png`, `bgp-rr-clients.png`
-
----
-
-### Phase 4 — L3VPN (MPLS VRF)
-
-**Objective:** Deliver a routed VPN service. Moscow and SPB customer traffic travels through the MPLS core in isolated VRFs. The VPC in Moscow should ping the VPC in SPB.
-
-**Data plane label stack:**
-```
-[VPN Label (inner)] [Transport Label (outer)] → IP Packet
-     ↑ assigned by PE                 ↑ LDP / RSVP-TE
-```
-
-**Key configuration snippet (PE router):**
-```
-ip vrf CUSTOMER-A
- rd 65000:100
- route-target export 65000:100
- route-target import 65000:100
-
-interface GigabitEthernet0/0
- ip vrf forwarding CUSTOMER-A
- ip address 192.168.10.1 255.255.255.0
-
-router bgp 65000
- address-family ipv4 vrf CUSTOMER-A
-  redistribute connected
-  redistribute static
-```
-
-**Verification commands to run & screenshot:**
-```bash
-show ip vrf interfaces                           # VRF interface binding
-show ip route vrf CUSTOMER-A                     # Customer routes in VRF table
-show bgp vpnv4 unicast vrf CUSTOMER-A           # VPNv4 routes with labels
-ping vrf CUSTOMER-A 192.168.20.1                # MSK-PE1 pings SPB customer prefix
-traceroute vrf CUSTOMER-A 192.168.20.1          # Path through MPLS core
-```
-
-> 📸 **Screenshots:** `screenshots/l3vpn/vrf-table-PE1.png`, `ping-msk-to-spb.png`
-
----
-
-### Phase 5 — L2VPN (VPLS / EoMPLS)
-
-**Objective:** Transparent Layer 2 service — as if both customer switches were connected to the same switch.
-
-**Key configuration snippet (EoMPLS xconnect):**
-```
-interface GigabitEthernet0/1
- xconnect 172.17.1.4 100 encapsulation mpls
-```
-
-Or for VPLS:
-```
-l2 vfi VPLS-CUSTOMER-A manual
- vpn id 100
- neighbor 172.17.1.4 encapsulation mpls
-
-interface GigabitEthernet0/1
- service instance 100 ethernet
-  encapsulation dot1q 100
-  rewrite ingress tag pop 1 symmetric
-  bridge-domain 100
-```
-
-**Verification commands to run & screenshot:**
-```bash
-show mpls l2transport vc                  # VC up/up
-show l2vpn service all                   # L2VPN instance status
-ping 192.168.100.2 source 192.168.100.1  # End-to-end L2 ping
-```
-
-> 📸 **Screenshot:** `screenshots/l2vpn/l2vpn-status.png`, `ping-l2-msk-to-spb.png`
-
----
-
-### Phase 6 — Customer Edge: VLANs & Router-on-a-Stick
-
-**Objective:** Simulate real customer sites with VLAN segmentation and inter-VLAN routing via a single uplink (Router-on-a-Stick).
-
-**Moscow site design:**
-```
-VPC (eth0)
- └── msk-switch-1 (Gi1/3 access VLAN 10)
-       └── msk-router-1 (Gi0/0 trunk → subinterfaces)
-             └── msk-PE-1 (Gi0/1 → MPLS core)
-```
-
-**Key configuration snippet (switch trunk):**
-```
-interface GigabitEthernet1/1
- switchport trunk encapsulation dot1q
- switchport mode trunk
- switchport trunk allowed vlan 10,20
-
-interface GigabitEthernet1/3
- switchport mode access
- switchport access vlan 10
-```
-
-**Key configuration snippet (Router-on-a-Stick):**
-```
-interface GigabitEthernet0/0
- no ip address
-
-interface GigabitEthernet0/0.10
- encapsulation dot1Q 10
- ip address 192.168.10.1 255.255.255.0
- ip vrf forwarding CUSTOMER-A
-
-interface GigabitEthernet0/0.20
- encapsulation dot1Q 20
- ip address 192.168.20.1 255.255.255.0
-```
-
-**Verification commands to run & screenshot:**
-```bash
-show interfaces trunk                    # Trunk allowed VLANs
-show vlan brief                          # VLAN table on switch
-show ip interface brief                  # Subinterface IPs up/up
-# From VPC:
-ping 192.168.10.1 gateway 192.168.10.1  # Default gateway reachable
-ping [SPB VPC IP]                        # End-to-end through MPLS
-```
-
-> 📸 **Screenshots:** `screenshots/ce/vlan-config-msk-switch.png`, `roas-msk-router.png`, `vpc-ping-end-to-end.png`
-
----
-
-## Verification & Troubleshooting
-
-### End-to-End Connectivity Test Checklist
-
-```
-[ ] 1. OSPF neighbors — all in FULL state
-[ ] 2. All loopbacks reachable via OSPF (ping lo0 from all nodes)
-[ ] 3. LDP neighbors established on all P2P links
-[ ] 4. MPLS forwarding table populated on P and PE routers
-[ ] 5. BGP sessions UP between all clients and RRs
-[ ] 6. VPNv4 prefixes visible on both PEs
-[ ] 7. VRF routing tables have remote customer prefixes
-[ ] 8. L3VPN: ping from msk-router-1 to spb-router-1 succeeds
-[ ] 9. L2VPN: VC status UP/UP
-[ ] 10. End-to-end: VPC (Moscow) pings VPC (SPB)
-```
-
-### Common Issues & Fixes
-
-| Symptom | Likely Cause | Fix |
+| msk-RR-1 | Route reflector | 172.31.50.1/32 |
+| spb-RR-2 | Route reflector | 172.31.51.1/32 |
+| msk-P-1 | P router | 172.17.1.1/32 |
+| msk-P-2 | P router | 172.17.1.3/32 |
+| spb-P-1 | P router | <!-- TODO: spb-P-1 loopback --> |
+| spb-P-2 | P router | 172.17.1.6/32 |
+| msk-PE-1 | PE, Moscow | 172.17.1.2/32 |
+| spb-PE-1 | PE, Saint Petersburg | 172.17.1.4/32 |
+ 
+### Core links
+ 
+Core links use /30 subnets from 10.10.10.0/24. EVE-NG interfaces `em2`–`em5` correspond to Junos `ge-0/0/0`–`ge-0/0/3`.
+ 
+| Subnet | Side A | Side B |
 |---|---|---|
-| LDP session not forming | Loopback not in OSPF | Add `network` statement |
-| BGP stuck in Active | Wrong update-source | Add `update-source Loopback0` |
-| VPNv4 routes missing | No `send-community extended` | Add on all VPNv4 peers |
-| VRF ping fails | RD/RT mismatch | Verify import/export RT |
-| L2VPN VC down | Mismatched VC-ID | Verify `xconnect` peer and ID |
-| VLAN not passing | Trunk not configured | Check `switchport trunk allowed vlan` |
-
-> 📄 **Full troubleshooting log:** [`docs/troubleshooting-log.md`](docs/troubleshooting-log.md)
-
+| 10.10.10.0/30 | msk-PE-1 ge-0/0/0 (.2) | msk-P-1 ge-0/0/0 (.1) |
+| 10.10.10.4/30 | msk-PE-1 ge-0/0/2 (.5) | msk-P-2 ge-0/0/2 (.6) |
+| 10.10.10.16/30 | msk-RR-1 ge-0/0/1 (.17) | msk-P-2 ge-0/0/1 (.18) |
+| 10.10.10.20/30 | msk-RR-1 ge-0/0/3 (.21) | msk-P-1 ge-0/0/3 (.22) |
+| 10.10.10.40/30 | spb-PE-1 ge-0/0/3 (.42) | spb-P-2 ge-0/0/1 (.41) |
+| 10.10.10.44/30 | spb-PE-1 ge-0/0/2 (.45) | spb-P-1 ge-0/0/1 (.46) |
+ 
+<!-- TODO: add the remaining links: msk-P-1–msk-P-2, msk-P-1–spb-P-1, msk-P-2–spb-P-2, spb-P-1–spb-P-2, spb-RR-2–spb-P-1, spb-RR-2–spb-P-2 -->
+ 
+### Service handoff (PE–CE)
+ 
+| Site | Service | PE interface | VLAN | PE address | CE address | Customer AS |
+|---|---|---|---|---|---|---|
+| Moscow | L2VPN | msk-PE-1 ge-0/0/1.100 | 100 | — | — | — |
+| Moscow | L3VPN | msk-PE-1 ge-0/0/1.200 | 200 | 172.18.1.1/30 | 172.18.1.2 | — |
+| Moscow | Internet | msk-PE-1 ge-0/0/1.300 | 300 | 72.64.35.121/30 | 72.64.35.122 | 4165 |
+| Saint Petersburg | L2VPN | spb-PE-1 ge-0/0/1.100 | 100 | — | — | — |
+| Saint Petersburg | L3VPN | spb-PE-1 ge-0/0/1.250 | 250 | 10.170.1.1/30 | 10.170.1.2 | — |
+| Saint Petersburg | Internet | spb-PE-1 ge-0/0/1.350 | 350 | 31.120.12.1/30 | 31.120.12.2 | 32500 |
+ 
 ---
-
-## Key Learnings & Design Decisions
-
-### Why Dual Route Reflectors?
-
-A single RR is a single point of failure for BGP control plane. Using `msk-RR-1` and `spb-RR-2` as a redundant pair ensures that if one RR fails, all PE sessions fall over to the surviving RR. Both RRs peer with each other as regular iBGP (non-client).
-
-### Why Separate P and PE Roles?
-
-P routers (msk-P-1, msk-P-2) only perform label switching — they never hold VRF state or VPNv4 routes. This is the **scalability principle** of MPLS VPN: P routers are VPN-unaware and operate purely at the transport layer. Only PE routers maintain customer VRF tables.
-
-### Why LDP Over RSVP-TE in This Lab?
-
-LDP was chosen for simplicity and to focus on VPN service delivery rather than traffic engineering. In production, RSVP-TE with explicit paths would be used for bandwidth guarantees and fast reroute (FRR).
-
-### Router-on-a-Stick Trade-offs
-
-RoaS is used at CE sites to simulate a realistic small-enterprise setup with a single uplink to the SP. In production, a Layer 3 switch would replace this, but RoaS demonstrates VLAN subinterface and trunking concepts clearly.
-
+ 
+## Design decisions
+ 
+| Decision | Why |
+|---|---|
+| **BGP-free core** | P routers run only OSPF and LDP. Customer and VPN routes live on PEs and RRs; the core only switches labels and never needs a BGP table. |
+| **Out-of-path route reflectors** | RRs are not in the MPLS forwarding path and do not run LDP. Their `inet.3` is empty, so next hops of `bgp.l3vpn.0` and `bgp.rtarget.0` routes are resolved through `inet.0` with `routing-options resolution rib`. |
+| **Two RRs, separate clusters** | Each RR uses its own loopback as cluster ID. Every PE peers with both RRs, and the RRs peer with each other as non-clients, so losing one RR does not stop route distribution. |
+| **Dual-homed PEs and RRs** | Every PE and RR connects to both P routers of its site, so a single P router or link failure only changes the IGP path. |
+| **RD per PE, RT per VPN** | RD = `<PE loopback>:32500`, so routes from different PEs stay distinct on the RRs. A single RT, `target:51300:32500`, defines VPN membership. |
+| **Route Target Constraint** | With `family route-target`, PEs signal which RTs they import, and VPN routes are sent only where they are needed. |
+| **`vrf-table-label`** | One label per VRF; the egress PE pops it and does an IP lookup in the VRF table. |
+| **LDP instead of RSVP-TE** | The lab focuses on service delivery. In production RSVP-TE or Segment Routing would add traffic engineering and fast reroute. |
+| **IGP metric for path preference** | `metric 100` on msk-PE-1 towards msk-P-1 makes msk-P-2 the preferred exit from msk-PE-1; the link to msk-P-1 stays as the backup. |
+| **BFD on PE–RR sessions** | 300 ms × 3 detects a failure in under a second instead of waiting for the 90-second BGP hold timer. |
+| **One trunk, one VLAN per service** | `flexible-ethernet-services` lets one PE–CE port carry a CCC unit (L2VPN) and IP units (L3VPN, Internet) side by side. |
+| **Customer link subnets in iBGP** | The PE export policy advertises its customer-facing /30s to the RRs while filtering out core links and loopbacks, so remote PEs can resolve the next hops of customer eBGP routes. |
+ 
 ---
-
-## Screenshots & Evidence
-
-> All screenshots are stored in `/screenshots/` with descriptive filenames.
-
-| # | Screenshot | What It Proves |
+ 
+## Implementation and verification
+ 
+Snippets are taken from msk-PE-1 unless noted otherwise.
+ 
+### IGP: OSPF
+ 
+All SP routers run OSPF area 0. Core links are point-to-point, and loopbacks are advertised so that LDP and BGP can use them. Customer prefixes never enter the IGP.
+ 
+```
+set protocols ospf area 0.0.0.0 interface lo0.0
+set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 interface-type p2p
+set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 metric 100
+set protocols ospf area 0.0.0.0 interface ge-0/0/2.0 interface-type p2p
+```
+ 
+Verification:
+ 
+```
+show ospf neighbor                    # every core neighbor in Full
+show ospf route                       # loopbacks of all SP routers
+ping 172.17.1.4 source 172.17.1.2     # msk-PE-1 -> spb-PE-1, loopback to loopback
+```
+ 
+<img width="630" height="815" alt="OSPF verification" src="https://github.com/user-attachments/assets/83c397ed-e541-41b6-b32b-d8b828190fd7" />
+### MPLS: LDP
+ 
+MPLS and LDP run on every core link. `ldp interface lo0.0` enables targeted LDP between PE loopbacks, which signals the pseudowire.
+ 
+```
+set interfaces ge-0/0/2 mtu 2000
+set interfaces ge-0/0/2 unit 0 family inet address 10.10.10.5/30
+set interfaces ge-0/0/2 unit 0 family mpls
+set protocols mpls interface ge-0/0/0.0
+set protocols mpls interface ge-0/0/2.0
+set protocols ldp interface ge-0/0/0.0
+set protocols ldp interface ge-0/0/2.0
+set protocols ldp interface lo0.0
+```
+ 
+Verification:
+ 
+```
+show ldp neighbor
+show ldp session
+show route table inet.3
+ping mpls ldp 172.17.1.4
+traceroute mpls ldp 172.17.1.4
+```
+ 
+LDP LSPs on msk-PE-1 (`show route table inet.3`):
+ 
+```
+172.17.1.3/32      *[LDP/9] 00:32:48, metric 1
+                    > to 10.10.10.6 via ge-0/0/2.0
+172.17.1.4/32      *[LDP/9] 00:32:48, metric 1
+                    > to 10.10.10.6 via ge-0/0/2.0, Push 299792
+172.17.1.6/32      *[LDP/9] 00:32:48, metric 1
+                    > to 10.10.10.6 via ge-0/0/2.0, Push 299776
+```
+ 
+msk-P-2 (172.17.1.3) is the directly connected next hop, so its LSP pushes no label: penultimate hop popping. LSPs towards spb-PE-1 and spb-P-2 push the labels learned from msk-P-2. msk-P-2 is the preferred exit by design: the link to msk-P-1 carries OSPF metric 100.
+ 
+### BGP: route reflectors
+ 
+PE, iBGP to both route reflectors:
+ 
+```
+set routing-options autonomous-system 51300
+set routing-options resolution rib bgp.rtarget.0 resolution-ribs inet.0
+set protocols bgp group BGP-RR type internal
+set protocols bgp group BGP-RR local-address 172.17.1.2
+set protocols bgp group BGP-RR family inet unicast
+set protocols bgp group BGP-RR family inet-vpn unicast
+set protocols bgp group BGP-RR family route-target
+set protocols bgp group BGP-RR export BGP
+set protocols bgp group BGP-RR neighbor 172.31.50.1 bfd-liveness-detection minimum-interval 300
+set protocols bgp group BGP-RR neighbor 172.31.50.1 bfd-liveness-detection multiplier 3
+set protocols bgp group BGP-RR neighbor 172.31.51.1 bfd-liveness-detection minimum-interval 300
+set protocols bgp group BGP-RR neighbor 172.31.51.1 bfd-liveness-detection multiplier 3
+```
+ 
+Route reflector msk-RR-1. The `BGP-CLIENTS` group has a cluster ID, so its members are clients; the `BGP-RR` group towards spb-RR-2 has none, so that peering is non-client:
+ 
+```
+set routing-options autonomous-system 51300
+set routing-options resolution rib bgp.l3vpn.0 resolution-ribs inet.0
+set routing-options resolution rib bgp.rtarget.0 resolution-ribs inet.0
+set protocols bgp group BGP-CLIENTS type internal
+set protocols bgp group BGP-CLIENTS local-address 172.31.50.1
+set protocols bgp group BGP-CLIENTS cluster 172.31.50.1
+set protocols bgp group BGP-CLIENTS family inet unicast
+set protocols bgp group BGP-CLIENTS family inet-vpn unicast
+set protocols bgp group BGP-CLIENTS family route-target
+set protocols bgp group BGP-CLIENTS neighbor 172.17.1.2 description msk-PE-1
+set protocols bgp group BGP-CLIENTS neighbor 172.17.1.4 description spb-PE-1
+set protocols bgp group BGP-RR type internal
+set protocols bgp group BGP-RR local-address 172.31.50.1
+set protocols bgp group BGP-RR family inet unicast
+set protocols bgp group BGP-RR family inet-vpn unicast
+set protocols bgp group BGP-RR family route-target
+set protocols bgp group BGP-RR neighbor 172.31.51.1 description spb-RR-2
+```
+ 
+Verification:
+ 
+```
+show bgp summary                  # on the RR: both PEs Established
+show bfd session                  # on the PEs: sessions to the RRs Up
+show route table bgp.rtarget.0    # RT membership from both PEs
+show route table bgp.l3vpn.0      # on the RR: VPN routes from both PEs
+```
+ 
+<!-- TODO: paste show bgp summary from msk-RR-1 or add a screenshot -->
+ 
+### L3VPN
+ 
+```
+set interfaces ge-0/0/1 vlan-tagging
+set interfaces ge-0/0/1 encapsulation flexible-ethernet-services
+set interfaces ge-0/0/1 unit 200 description L3VPN
+set interfaces ge-0/0/1 unit 200 vlan-id 200
+set interfaces ge-0/0/1 unit 200 family inet address 172.18.1.1/30
+set routing-instances AstroGlass instance-type vrf
+set routing-instances AstroGlass interface ge-0/0/1.200
+set routing-instances AstroGlass route-distinguisher 172.17.1.2:32500
+set routing-instances AstroGlass vrf-target target:51300:32500
+set routing-instances AstroGlass vrf-table-label
+```
+ 
+`vrf-target` generates the import and export policies: exported routes get the RT attached, and received routes carrying the same RT are imported. On spb-PE-1 the VRF uses ge-0/0/1.250 (10.170.1.1/30) and RD 172.17.1.4:32500.
+ 
+Verification:
+ 
+```
+show route table AstroGlass.inet.0
+show route advertising-protocol bgp 172.31.50.1 table AstroGlass.inet.0
+show route label 16
+ping 10.170.1.1 routing-instance AstroGlass source 172.18.1.1
+```
+ 
+The remote PE–CE subnet (10.170.1.0/30 on msk-PE-1) appears in `AstroGlass.inet.0` as a BGP route with two labels: the VPN label inside and the LDP transport label on top.
+ 
+With `vrf-table-label` the VRF gets one table label. On msk-PE-1 it is label 16:
+ 
+```
+16                 *[VPN/0] 00:33:49
+                      to table AstroGlass.inet.0, Pop
+```
+ 
+<!-- TODO: paste show route table AstroGlass.inet.0 from msk-PE-1 -->
+ 
+### L2VPN: LDP-signalled pseudowire
+ 
+```
+set interfaces ge-0/0/1 unit 100 description L2VPN
+set interfaces ge-0/0/1 unit 100 encapsulation vlan-ccc
+set interfaces ge-0/0/1 unit 100 vlan-id 100
+set interfaces ge-0/0/1 unit 100 family ccc
+set protocols l2circuit neighbor 172.17.1.4 interface ge-0/0/1.100 virtual-circuit-id 100
+set protocols l2circuit neighbor 172.17.1.4 interface ge-0/0/1.100 mtu 1600
+```
+ 
+The pseudowire is signalled over a targeted LDP session between the PE loopbacks (RFC 8077). Both ends must use the same VC ID and MTU, and the core MTU must leave room for the customer frame, the control word and two labels.
+ 
+Verification:
+ 
+```
+show l2circuit connections                    # connection Up
+show ldp neighbor                             # includes the targeted neighbor 172.17.1.4 via lo0.0
+ping mpls l2circuit interface ge-0/0/1.100
+```
+ 
+Pseudowire state on msk-PE-1:
+ 
+```
+l2circuit.0
+172.17.1.4:CtrlWord:4:100:Local/96
+                   *[L2CKT/7] 00:33:05, metric2 1
+                    > to 10.10.10.6 via ge-0/0/2.0, Push 299792
+ 
+mpls.0
+299776             *[L2CKT/7] 00:32:43
+                    > via ge-0/0/1.100, Pop       Offset: 4
+ge-0/0/1.100       *[L2CKT/7] 00:32:43, metric2 1
+                    > to 10.10.10.6 via ge-0/0/2.0, Push 299776, Push 299792(top) Offset: 252
+```
+ 
+- `CtrlWord:4:100`: the control word is used, encapsulation type 4 is Ethernet VLAN mode, VC ID 100.
+- Frames received on ge-0/0/1.100 get two labels: the pseudowire label 299776 advertised by spb-PE-1, and the LDP label 299792 towards spb-PE-1 on top.
+- Pseudowire label 299776 arriving from the core is popped and the frame leaves via ge-0/0/1.100. Both PEs happened to allocate the same value, 299776, for their side of the pseudowire.
+### Internet access: customer eBGP
+ 
+msk-PE-1:
+ 
+```
+set interfaces ge-0/0/1 unit 300 description Internet
+set interfaces ge-0/0/1 unit 300 vlan-id 300
+set interfaces ge-0/0/1 unit 300 family inet address 72.64.35.121/30
+set protocols bgp group CLIENTS type external
+set protocols bgp group CLIENTS neighbor 72.64.35.122 peer-as 4165
+```
+ 
+spb-PE-1 accepts only the prefix assigned to the customer:
+ 
+```
+set policy-options prefix-list AstroGlass-Internet 95.235.16.0/24
+set policy-options policy-statement IMPORT-ASTOGLASS-INTERNET term 1 from prefix-list AstroGlass-Internet
+set policy-options policy-statement IMPORT-ASTOGLASS-INTERNET term 1 then accept
+set policy-options policy-statement IMPORT-ASTOGLASS-INTERNET then reject
+set protocols bgp group CLIENTS neighbor 31.120.12.2 passive
+set protocols bgp group CLIENTS neighbor 31.120.12.2 import IMPORT-ASTOGLASS-INTERNET
+set protocols bgp group CLIENTS neighbor 31.120.12.2 peer-as 32500
+```
+ 
+The export policy on the `BGP-RR` group advertises the customer-facing /30s to the RRs and keeps core links and loopbacks out of BGP:
+ 
+```
+set policy-options prefix-list DENY 10.10.10.0/24
+set policy-options prefix-list DENY 172.17.1.0/24
+set policy-options policy-statement BGP term DENY from protocol direct
+set policy-options policy-statement BGP term DENY from prefix-list-filter DENY orlonger
+set policy-options policy-statement BGP term DENY then reject
+set policy-options policy-statement BGP term BGP from protocol direct
+set policy-options policy-statement BGP term BGP then accept
+```
+ 
+As a result, remote PEs resolve the next hops of customer eBGP routes through an LSP. On msk-PE-1 the spb-PE-1 customer link is a BGP route:
+ 
+```
+31.120.12.0/30     *[BGP/170] 00:04:01, localpref 100, from 172.31.50.1
+                      AS path: I, validation-state: unverified
+                    > to 10.10.10.6 via ge-0/0/2.0, Push 299792
+```
+ 
+Verification:
+ 
+```
+show bgp summary
+show route receive-protocol bgp 31.120.12.2       # what the customer announces
+show route advertising-protocol bgp 31.120.12.2   # what the customer receives
+```
+ 
+<!-- TODO: add a "Customer sites" section from the CE configs (VLANs, router-on-a-stick, VPCs) -->
+ 
+### Routing Engine protection
+ 
+The `PROTECT-RE` filter on lo0.0 admits only the control and management traffic the router needs and discards everything else.
+ 
+| Term | Match | Action |
 |---|---|---|
-| 1 | `topology/eve-ng-topology.png` | Lab is built and running in EVE-NG |
-| 2 | `ospf/ospf-neighbors-all.png` | Full OSPF adjacency across SP core |
-| 3 | `mpls/ldp-neighbors.png` | LDP sessions on all core links |
-| 4 | `mpls/mpls-forwarding-table-PE1.png` | LFIB programmed, labels assigned |
-| 5 | `bgp/bgp-summary-RR1.png` | All BGP clients connected to RR |
-| 6 | `bgp/bgp-vpnv4-table.png` | VPNv4 prefixes with RD/RT visible |
-| 7 | `l3vpn/ping-msk-to-spb.png` | L3VPN working — cross-site ping |
-| 8 | `l2vpn/l2vpn-status.png` | L2VPN VC up/up |
-| 9 | `ce/vpc-ping-end-to-end.png` | Full end-to-end VPC → VPC ping |
-| 10 | `ce/vlan-config-msk-switch.png` | VLAN trunking at CE |
-
+| BGP | TCP 179 | accept |
+| OSPF | protocol OSPF | accept |
+| LDP | TCP and UDP 646 | accept |
+| BFD | UDP 3784, 4784 | accept |
+| MPLS-OAM | UDP 3503 | accept |
+| ICMP | echo request/reply, unreachable, time exceeded | policer 1 Mbit/s, accept |
+| TRACEROUTE | UDP 33434–33534 | policer 1 Mbit/s, accept |
+| REMOTE-ACCESS | TCP 22, 23 | accept |
+| DENY-ALL | everything else | count, log, discard |
+ 
+On the route reflectors the LDP and MPLS-OAM terms are omitted.
+ 
+The original design restricted every term by source address. On this vMX build source matching does not work for OSPF hellos, so the OSPF and LDP terms match on protocol and port only; source restriction still works for unicast terms such as BGP. See [case study 3](#3-all-protocols-down-after-hardening-the-lo0-filter).
+ 
+Verification:
+ 
+```
+show firewall filter PROTECT-RE   # DENY-ALL counter and policer drops
+show firewall log                 # what is being discarded right now
+```
+ 
 ---
-
+ 
+## Troubleshooting case studies
+ 
+### 1. L3VPN: remote PE–CE subnets missing from the VRF
+ 
+**Symptom.** `AstroGlass.inet.0` on each PE contained only its own Direct and Local routes.
+ 
+**Diagnosis.** Neither the PEs nor the RR had a `bgp.l3vpn.0` table: no VPN routes existed anywhere in the network. The VRF used explicit `vrf-import` and `vrf-export` with the same policy:
+ 
+```
+set policy-options policy-statement EXPORT-VRF term RT from community ASTROGLASS-RT
+set policy-options policy-statement EXPORT-VRF term RT then accept
+```
+ 
+**Root cause.** `from community` is a valid import condition but a wrong export one. Locally originated VRF routes carry no communities, so the term never matched and nothing was exported. The RT was also inconsistent between the PEs, which went unnoticed because explicit policies override `vrf-target`.
+ 
+**Fix.** Remove the explicit policies and use one RT on both PEs:
+ 
+```
+delete routing-instances AstroGlass vrf-import
+delete routing-instances AstroGlass vrf-export
+set routing-instances AstroGlass vrf-target target:51300:32500
+```
+ 
+**Lesson.** An export policy must add the RT (`then community add`); an import policy matches it.
+ 
+### 2. VPN routes not sent to the RR (Route Target Constraint)
+ 
+**Symptom.** After the first fix the VPN routes existed on the PEs, but the RR still received none. On msk-RR-1:
+ 
+```
+Peer                     AS      InPkt     OutPkt    OutQ   Flaps Last Up/Dwn State|#Active/Received/Accepted/Damped...
+172.17.1.2            51300          9          5       0       2          33 Establ
+  inet.0: 1/1/1/0
+  bgp.l3vpn.0: 0/0/0/0
+  bgp.rtarget.0: 1/1/1/0
+172.17.1.4            51300          9          6       0       2          33 Establ
+  inet.0: 1/1/1/0
+  bgp.l3vpn.0: 0/0/0/0
+  bgp.rtarget.0: 0/1/1/0
+```
+ 
+**Diagnosis.** With `family route-target`, a PE sends VPN routes to a peer only if that peer has advertised interest in the RT. On the PEs the RT membership route received from the RR was hidden:
+ 
+```
+show route table bgp.rtarget.0 hidden extensive
+ 
+51300:51300:32500/96 (2 entries, 1 announced)
+         BGP    Preference: 170/-101
+                Next hop type: Unusable
+                State: <Hidden Int Ext>
+                Inactive reason: Unusable path
+                Task: BGP_51300.172.31.50.1+179
+```
+ 
+**Root cause.** The next hop of the membership route could not be resolved in `inet.3`: the RR is outside the MPLS domain and has no LSP towards it. The route became unusable, and the PE concluded that the RR had no interest in the VPN.
+ 
+**Fix.** Resolve `bgp.rtarget.0` next hops through `inet.0` on the PEs, as the RR already did:
+ 
+```
+set routing-options resolution rib bgp.rtarget.0 resolution-ribs inet.0
+```
+ 
+After the change the RR received VPN routes from both PEs, and the remote PE–CE subnets appeared in both VRFs.
+ 
+### 3. All protocols down after hardening the lo0 filter
+ 
+**Symptom.** After committing a new `PROTECT-RE` with source-restricted terms, OSPF, LDP, BGP and BFD went down on every router where the filter was applied.
+ 
+**Diagnosis.** `show firewall log` on spb-PE-1 showed OSPF hellos from the neighbor being discarded, and the DENY-ALL counter grew by one packet per hello interval:
+ 
+```
+Time      Filter    Action Interface     Protocol        Src Addr                         Dest Addr
+13:02:19  pfe       D      ge-0/0/3.0    OSPF            10.10.10.41                      224.0.0.5
+13:02:09  pfe       D      ge-0/0/3.0    OSPF            10.10.10.41                      224.0.0.5
+13:01:59  pfe       D      ge-0/0/3.0    OSPF            10.10.10.41                      224.0.0.5
+```
+ 
+The OSPF term accepted OSPF from 10.10.10.0/24, so 10.10.10.41 should have matched.
+ 
+**Isolation.**
+ 
+| Test | Result |
+|---|---|
+| OSPF term with `source-prefix-list` | hellos dropped |
+| OSPF term with `source-address 10.10.10.0/24` | hellos dropped |
+| OSPF term without a source condition | adjacency Full |
+| BGP term with `source-address` (unicast) | sessions stay Established |
+ 
+**Root cause.** On vMX 14.1R1 with its software PFE, source matching in the lo0 filter did not work for OSPF hellos, which are multicast to 224.0.0.5, while it worked for BGP, which is unicast. The previous filter never exposed this because its working terms matched only protocol and port.
+ 
+**Fix.** The OSPF and LDP terms match on protocol and port only; LDP discovery hellos are multicast too, so LDP is treated the same way as OSPF. Unicast terms can still be restricted by source.
+ 
+**Lessons.**
+ 
+- Apply Routing Engine filters with `commit confirmed`, one router at a time.
+- Keep `count` and `log` in the final term: they turn "everything is down" into one line of evidence.
+- Paste long configurations with `load set terminal`.
+---
+ 
+## Platform notes: vMX 14.1 on EVE-NG
+ 
+- **Slow data plane start.** The Routing Engine boots first; FPC 0 and PIC 0 need several more minutes. Until PIC 0 is online, `ge-` interfaces do not exist. Check with `show chassis fpc pic-status`.
+- **FPC watchdog panics.** Repeated `fpc0 PANIC ... Watchdog fired` messages mean the VM lacks CPU, RAM or KVM acceleration. Give the node more resources, and if EVE-NG itself runs in a VM, enable nested virtualization.
+- **lo0 filter limitation.** Source matching fails for OSPF hellos; see [case study 3](#3-all-protocols-down-after-hardening-the-lo0-filter).
+- **Pasting configuration.** Long `set` blocks pasted into the EVE-NG console can silently lose lines. Use `load set terminal`, finish with Ctrl+D, and check `show | compare` before committing.
+---
+ 
+## Roadmap
+ 
+- [ ] Bring spb-RR-2 back into service and test RR failover.
+- [ ] Customer edge hardening: inbound prefix filter on msk-PE-1, explicit export policy towards customers, prefix limits, uRPF and an infrastructure ACL.
+- [ ] PE–CE routing inside the VRF (static or eBGP) to carry the customer LANs.
+- [ ] Move to vJunos-router or a newer vMX and restore source-restricted OSPF and LDP terms.
+- [ ] RSVP-TE with fast reroute as an alternative transport.
+---
+ 
 ## References
-
-- [RFC 4364 — BGP/MPLS IP Virtual Private Networks (L3VPN)](https://www.rfc-editor.org/rfc/rfc4364)
-- [RFC 4761 — Virtual Private LAN Service (VPLS) Using BGP](https://www.rfc-editor.org/rfc/rfc4761)
+ 
+- [RFC 2328 — OSPF Version 2](https://www.rfc-editor.org/rfc/rfc2328)
 - [RFC 3031 — Multiprotocol Label Switching Architecture](https://www.rfc-editor.org/rfc/rfc3031)
 - [RFC 5036 — LDP Specification](https://www.rfc-editor.org/rfc/rfc5036)
-- [Cisco MPLS Configuration Guide](https://www.cisco.com/c/en/us/td/docs/ios-xml/ios/mp_l3_vpns/configuration/xe-16/mp-l3-vpns-xe-16-book.html)
-- Ivan Pepelnjak — *MPLS and VPN Architectures* (Cisco Press)
-- EVE-NG Documentation — [eve-ng.net](https://www.eve-ng.net/index.php/documentation/)
-
+- [RFC 4456 — BGP Route Reflection](https://www.rfc-editor.org/rfc/rfc4456)
+- [RFC 4364 — BGP/MPLS IP Virtual Private Networks](https://www.rfc-editor.org/rfc/rfc4364)
+- [RFC 4684 — Constrained Route Distribution for BGP/MPLS IP VPNs](https://www.rfc-editor.org/rfc/rfc4684)
+- [RFC 8077 — Pseudowire Setup and Maintenance Using LDP](https://www.rfc-editor.org/rfc/rfc8077)
+- [RFC 4448 — Encapsulation Methods for Transport of Ethernet over MPLS Networks](https://www.rfc-editor.org/rfc/rfc4448)
+- [RFC 5880 — Bidirectional Forwarding Detection](https://www.rfc-editor.org/rfc/rfc5880)
+- [RFC 5883 — BFD for Multihop Paths](https://www.rfc-editor.org/rfc/rfc5883)
+- Ivan Pepelnjak, Jim Guichard — *MPLS and VPN Architectures* (Cisco Press)
+- [EVE-NG documentation](https://www.eve-ng.net/index.php/documentation/)
 ---
-
+ 
 ## Author
-
-**[Aleksandr Gerasimov]**  
-Network Engineer   
-[LinkedIn](https://linkedin.com/in/a1exger) 
-
+ 
+**Aleksandr Gerasimov** — Network Engineer  
+[LinkedIn](https://linkedin.com/in/a1exger)
+ 
 ---
-
-*This lab was built for educational and portfolio purposes. All IP addresses are private/RFC-1918 or documentation ranges.*
+ 
+*Lab environment built for education and portfolio purposes. Core addressing uses RFC 1918 space; customer-facing "public" prefixes are arbitrary values used only inside the lab.*

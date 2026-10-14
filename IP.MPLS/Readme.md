@@ -207,6 +207,7 @@ ping 172.17.1.4 source 172.31.50.1    # msk-RR-1 -> spb-PE-1, loopback to loopba
 Output on msk-RR-1, with all eight SP routers in the OSPF database. Because of OSPF overload, msk-RR-1's own transit links cost 65535, so every route through the core has a metric of 65535 or more; only the directly connected subnets keep metric 1.
  
 <img width="630" alt="OSPF verification on msk-RR-1" src="screenshots/ospf/OSPF.png" />
+
 ### MPLS: LDP
  
 MPLS and LDP run on every core link. `ldp interface lo0.0` enables targeted LDP between PE loopbacks, which signals the pseudowire.

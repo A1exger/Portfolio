@@ -20,6 +20,7 @@ no aaa new-model
 !
 !
 !
+no ip domain-lookup
 ip cef
 no ipv6 cef
 !
@@ -58,27 +59,32 @@ interface GigabitEthernet0/1
  negotiation auto
 !
 interface GigabitEthernet0/2
+ shutdown
  media-type rj45
  negotiation auto
 !
 interface GigabitEthernet0/3
+ shutdown
  media-type rj45
  negotiation auto
 !
 interface GigabitEthernet1/0
+ shutdown
  media-type rj45
  negotiation auto
 !
 interface GigabitEthernet1/1
+ shutdown
  media-type rj45
  negotiation auto
 !
 interface GigabitEthernet1/2
+ shutdown
  media-type rj45
  negotiation auto
 !
 interface GigabitEthernet1/3
- description Host-A-Marketing
+ description Marketing
  switchport access vlan 10
  switchport mode access
  media-type rj45

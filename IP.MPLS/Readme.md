@@ -64,41 +64,7 @@ All three services reach the customer over a single 802.1Q trunk per site, one V
 ## Topology
  
 ![EVE-NG topology](screenshots/topology/topology.png)
- 
-Physical topology: core links and PE–CE trunks.
- 
-```mermaid
-graph LR
-  subgraph MSK [Moscow]
-    mskCE["msk-router-1<br/>CE"]
-    mskPE["msk-PE-1<br/>172.17.1.2"]
-    mskP1["msk-P-1<br/>172.17.1.1"]
-    mskP2["msk-P-2<br/>172.17.1.3"]
-    mskRR["msk-RR-1<br/>172.31.50.1"]
-  end
-  subgraph SPB [Saint Petersburg]
-    spbP1["spb-P-1<br/>172.17.1.5"]
-    spbP2["spb-P-2<br/>172.17.1.6"]
-    spbRR["spb-RR-2<br/>172.31.51.1"]
-    spbPE["spb-PE-1<br/>172.17.1.4"]
-    spbCE["spb-router-1<br/>CE"]
-  end
-  mskCE ---|VLAN 100 / 200 / 300| mskPE
-  mskPE ---|metric 100| mskP1
-  mskPE --- mskP2
-  mskRR --- mskP1
-  mskRR --- mskP2
-  mskP1 --- mskP2
-  mskP1 --- spbP1
-  mskP2 --- spbP2
-  spbP1 --- spbP2
-  spbRR --- spbP1
-  spbRR --- spbP2
-  spbP1 --- spbPE
-  spbP2 --- spbPE
-  spbPE ---|VLAN 100 / 250 / 350| spbCE
-```
- 
+  
 BGP control plane. P routers do not run BGP.
  
 ```mermaid

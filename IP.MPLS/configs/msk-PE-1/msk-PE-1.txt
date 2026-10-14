@@ -134,3 +134,4 @@ set routing-instances AstroGlass interface ge-0/0/1.200
 set routing-instances AstroGlass route-distinguisher 172.17.1.2:32500
 set routing-instances AstroGlass vrf-target target:51300:32500
 set routing-instances AstroGlass vrf-table-label
+set routing-instances AstroGlass routing-options static route 10.154.1.0/25 next-hop 172.18.1.2

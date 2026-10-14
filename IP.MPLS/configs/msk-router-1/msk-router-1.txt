@@ -125,9 +125,6 @@ interface GigabitEthernet0/5
 router bgp 4165
  bgp log-neighbor-changes
  neighbor 72.64.35.121 remote-as 51300
- !
- address-family vpnv4
- exit-address-family
 !
 ip forward-protocol nd
 !

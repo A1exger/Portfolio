@@ -140,8 +140,6 @@ ip route 95.235.16.0 255.255.255.0 Null0
 ip route 192.168.1.0 255.255.255.0 10.120.0.2
 !
 !
-ip prefix-list PUBLIC seq 5 permit 95.235.16.0/24
-!
 !
 !
 control-plane

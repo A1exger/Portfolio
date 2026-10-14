@@ -49,7 +49,7 @@ set firewall family inet filter PROTECT-RE term ALLOW-BGP from destination-port 
 set firewall family inet filter PROTECT-RE term ALLOW-BGP then accept
 set firewall family inet filter PROTECT-RE term ALLOW-LDP from protocol udp
 set firewall family inet filter PROTECT-RE term ALLOW-LDP from protocol tcp
-set firewall family inet filter PROTECT-RE term ALLOW-LDP from destination-port 646
+set firewall family inet filter PROTECT-RE term ALLOW-LDP from port 646
 set firewall family inet filter PROTECT-RE term ALLOW-LDP then accept
 set firewall family inet filter PROTECT-RE term ALLOW-ICMP from protocol icmp
 set firewall family inet filter PROTECT-RE term ALLOW-ICMP from icmp-type echo-request

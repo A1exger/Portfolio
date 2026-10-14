@@ -1,0 +1,75 @@
+set version 14.1R1.10
+set system host-name msk-P-1
+set system login user lab uid 2000
+set system login user lab class super-user
+set system services telnet connection-limit 5
+set system syslog user * any emergency
+set system syslog file messages any notice
+set system syslog file messages authorization info
+set system syslog file interactive-commands interactive-commands any
+set interfaces ge-0/0/0 description msk-PE-1
+set interfaces ge-0/0/0 mtu 2000
+set interfaces ge-0/0/0 unit 0 family inet address 10.10.10.1/30
+set interfaces ge-0/0/0 unit 0 family mpls
+set interfaces ge-0/0/1 description msk-P-2
+set interfaces ge-0/0/1 mtu 2000
+set interfaces ge-0/0/1 unit 0 family inet address 10.10.10.26/30
+set interfaces ge-0/0/1 unit 0 family mpls
+set interfaces ge-0/0/2 description spb-P-2
+set interfaces ge-0/0/2 mtu 2000
+set interfaces ge-0/0/2 unit 0 family inet address 10.10.10.10/30
+set interfaces ge-0/0/2 unit 0 family mpls
+set interfaces ge-0/0/3 description msk-RR-1
+set interfaces ge-0/0/3 mtu 2000
+set interfaces ge-0/0/3 unit 0 family inet address 10.10.10.22/30
+set interfaces lo0 description Lo0
+set interfaces lo0 unit 0 family inet filter input PROTECT-RE
+set interfaces lo0 unit 0 family inet address 172.17.1.1/32
+set routing-options router-id 172.17.1.1
+set routing-options autonomous-system 51300
+set protocols mpls interface ge-0/0/0.0
+set protocols mpls interface ge-0/0/1.0
+set protocols mpls interface ge-0/0/2.0
+set protocols mpls interface lo0.0
+set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 interface-type p2p
+set protocols ospf area 0.0.0.0 interface ge-0/0/0.0 metric 100
+set protocols ospf area 0.0.0.0 interface ge-0/0/2.0 interface-type p2p
+set protocols ospf area 0.0.0.0 interface lo0.0
+set protocols ospf area 0.0.0.0 interface ge-0/0/3.0 interface-type p2p
+set protocols ospf area 0.0.0.0 interface ge-0/0/1.0 interface-type p2p
+set protocols ospf area 0.0.0.0 interface ge-0/0/1.0 metric 100
+set protocols ldp interface ge-0/0/0.0
+set protocols ldp interface ge-0/0/1.0
+set protocols ldp interface ge-0/0/2.0
+set protocols ldp interface lo0.0
+set firewall family inet filter PROTECT-RE term ALLOW-OSPF from protocol ospf
+set firewall family inet filter PROTECT-RE term ALLOW-OSPF then accept
+set firewall family inet filter PROTECT-RE term ALLOW-BGP from protocol tcp
+set firewall family inet filter PROTECT-RE term ALLOW-BGP from destination-port bgp
+set firewall family inet filter PROTECT-RE term ALLOW-BGP then accept
+set firewall family inet filter PROTECT-RE term ALLOW-LDP from protocol udp
+set firewall family inet filter PROTECT-RE term ALLOW-LDP from protocol tcp
+set firewall family inet filter PROTECT-RE term ALLOW-LDP from destination-port 646
+set firewall family inet filter PROTECT-RE term ALLOW-LDP then accept
+set firewall family inet filter PROTECT-RE term ALLOW-ICMP from protocol icmp
+set firewall family inet filter PROTECT-RE term ALLOW-ICMP from icmp-type echo-request
+set firewall family inet filter PROTECT-RE term ALLOW-ICMP from icmp-type echo-reply
+set firewall family inet filter PROTECT-RE term ALLOW-ICMP from icmp-type unreachable
+set firewall family inet filter PROTECT-RE term ALLOW-ICMP then accept
+set firewall family inet filter PROTECT-RE term ALLOW-SSH from source-address 10.0.0.0/8
+set firewall family inet filter PROTECT-RE term ALLOW-SSH from protocol tcp
+set firewall family inet filter PROTECT-RE term ALLOW-SSH from destination-port ssh
+set firewall family inet filter PROTECT-RE term ALLOW-SSH then accept
+set firewall family inet filter PROTECT-RE term ALLOW-SNMP from source-address 10.0.0.0/8
+set firewall family inet filter PROTECT-RE term ALLOW-SNMP from protocol udp
+set firewall family inet filter PROTECT-RE term ALLOW-SNMP from destination-port snmp
+set firewall family inet filter PROTECT-RE term ALLOW-SNMP then accept
+set firewall family inet filter PROTECT-RE term ALLOW-BFD from protocol udp
+set firewall family inet filter PROTECT-RE term ALLOW-BFD from destination-port 3784
+set firewall family inet filter PROTECT-RE term ALLOW-BFD from destination-port 3785
+set firewall family inet filter PROTECT-RE term ALLOW-BFD from destination-port 4784
+set firewall family inet filter PROTECT-RE term ALLOW-BFD from destination-port 6784
+set firewall family inet filter PROTECT-RE term ALLOW-BFD then accept
+set firewall family inet filter PROTECT-RE term DENY-ALL then log
+set firewall family inet filter PROTECT-RE term DENY-ALL then syslog
+set firewall family inet filter PROTECT-RE term DENY-ALL then discard

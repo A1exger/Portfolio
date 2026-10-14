@@ -875,7 +875,6 @@ spb-P-1> show ldp session
 - **Slow data plane start.** The Routing Engine boots first; FPC 0 and PIC 0 need several more minutes. Until PIC 0 is online, `ge-` interfaces do not exist. Check with `show chassis fpc pic-status`.
 - **FPC watchdog panics.** Repeated `fpc0 PANIC ... Watchdog fired` messages mean the VM lacks CPU, RAM or KVM acceleration. Give the node more resources, and if EVE-NG itself runs in a VM, enable nested virtualization.
 - **lo0 filter evaluation.** The software PFE mis-evaluates some lo0 filters, and a change in one term can break matching in others. Every filter change goes through `commit confirmed` and a check of the DENY-ALL counter; see [case study 3](#3-all-protocols-down-after-hardening-the-lo0-filter).
-- **Pasting configuration.** Long `set` blocks pasted into the EVE-NG console can silently lose lines. Use `load set terminal`, finish with Ctrl+D, and check `show | compare` before committing.
 ---
  
 ## Roadmap

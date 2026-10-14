@@ -132,6 +132,7 @@ ip forward-protocol nd
 no ip http server
 no ip http secure-server
 ip route 172.16.1.0 255.255.255.0 10.120.0.1
+ip route 192.168.30.0 255.255.255.0 172.18.1.1
 !
 !
 !

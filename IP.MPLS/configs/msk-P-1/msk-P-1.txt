@@ -15,7 +15,7 @@ set interfaces ge-0/0/1 description msk-P-2
 set interfaces ge-0/0/1 mtu 2000
 set interfaces ge-0/0/1 unit 0 family inet address 10.10.10.26/30
 set interfaces ge-0/0/1 unit 0 family mpls
-set interfaces ge-0/0/2 description spb-P-2
+set interfaces ge-0/0/2 description spb-P-1
 set interfaces ge-0/0/2 mtu 2000
 set interfaces ge-0/0/2 unit 0 family inet address 10.10.10.10/30
 set interfaces ge-0/0/2 unit 0 family mpls

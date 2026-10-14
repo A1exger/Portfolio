@@ -816,7 +816,7 @@ Address          Interface              State     ID               Pri  Dead
  
 `show system rollback compare 1 0` confirmed that the commit contained only the `protocol tcp` line, and `rollback 1` brought every session back.
  
-**Root cause.** The software PFE of vMX 14.1R1 mis-evaluates the lo0 filter for some combinations of terms. The result depends on the filter as a whole, not on the term being changed, and the same behaviour was seen on both PEs. Every version tested is a standard Routing Engine protection design, so the exact trigger inside the software PFE remains unknown. The earlier filter never exposed the problem because it matched almost everything by protocol and port only.
+**Root cause.** I suppose the software PFE of vMX 14.1R1 mis-evaluates the lo0 filter for some combinations of terms. The result depends on the filter as a whole, not on the term being changed, and the same behaviour was seen on both PEs. Every version tested is a standard Routing Engine protection design, so the exact trigger inside the software PFE remains unknown. The earlier filter never exposed the problem because it matched almost everything by protocol and port only.
  
 **Fix.** The working filter found by these tests is kept unchanged: OSPF matched by protocol, BGP by peer list and port, LDP, BFD and MPLS OAM by `INFRA`. Any further change goes through `commit confirmed` on one router at a time. OSPF authentication is the proper protection for OSPF on this build (see the roadmap).
  

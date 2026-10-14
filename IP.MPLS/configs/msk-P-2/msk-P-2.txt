@@ -24,7 +24,6 @@ set interfaces ge-0/0/3 unit 0 family inet address 10.10.10.14/30
 set interfaces ge-0/0/3 unit 0 family mpls
 set interfaces lo0 description Lo0
 set interfaces lo0 unit 0 family inet filter input PROTECT-RE
-deactivate interfaces lo0 unit 0 family inet filter input
 set interfaces lo0 unit 0 family inet address 172.17.1.3/32
 set routing-options router-id 172.17.1.3
 set routing-options autonomous-system 51300

@@ -1,3 +1,4 @@
+
 set version 14.1R1.10
 set system host-name spb-PE-1
 set system login user lab uid 2000
@@ -134,4 +135,4 @@ set routing-instances AstroGlass interface ge-0/0/1.250
 set routing-instances AstroGlass route-distinguisher 172.17.1.4:32500
 set routing-instances AstroGlass vrf-target target:51300:32500
 set routing-instances AstroGlass vrf-table-label
-
+set routing-instances AstroGlass routing-options static route 192.168.30.0/24 next-hop 10.170.1.2

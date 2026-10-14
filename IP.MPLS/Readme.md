@@ -252,6 +252,7 @@ Label databases on msk-PE-1 for its sessions with msk-P-1, msk-P-2 and, over tar
 On msk-P-2, with sessions to msk-P-1, msk-PE-1 and spb-P-2. For its own loopback it advertises label 3, implicit null, which requests penultimate hop popping:
  
 <img width="621" alt="LDP on msk-P-2" src="screenshots/ldp/msk-P-2_LDP.png" />
+
 ### BGP: route reflectors
  
 PE, iBGP to both route reflectors:
@@ -435,6 +436,7 @@ ge-0/0/1.100       *[L2CKT/7] 00:02:28, metric2 1
 The same pseudowire seen from spb-PE-1 (`show l2circuit connections extensive`): Up, control word negotiated, label 299776 in both directions:
  
 <img width="626" alt="Pseudowire on spb-PE-1" src="screenshots/l2vpn/spb-PE-1_L2VPN.png" />
+
 ### Internet access: customer eBGP
  
 Two communities decide what the Internet customers receive:

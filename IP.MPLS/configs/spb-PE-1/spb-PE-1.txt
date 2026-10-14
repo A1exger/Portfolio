@@ -1,0 +1,137 @@
+set version 14.1R1.10
+set system host-name spb-PE-1
+set system login user lab uid 2000
+set system login user lab class super-user
+set system services telnet connection-limit 5
+set system syslog user * any emergency
+set system syslog file messages any notice
+set system syslog file messages authorization info
+set system syslog file interactive-commands interactive-commands any
+set interfaces ge-0/0/1 description AstroGlass
+set interfaces ge-0/0/1 flexible-vlan-tagging
+set interfaces ge-0/0/1 encapsulation flexible-ethernet-services
+set interfaces ge-0/0/1 unit 100 description L2VPN
+set interfaces ge-0/0/1 unit 100 encapsulation vlan-ccc
+set interfaces ge-0/0/1 unit 100 vlan-id 100
+set interfaces ge-0/0/1 unit 100 family ccc
+set interfaces ge-0/0/1 unit 250 description AstroGlass-L3VPN
+set interfaces ge-0/0/1 unit 250 vlan-id 250
+set interfaces ge-0/0/1 unit 250 family inet address 10.170.1.1/30
+set interfaces ge-0/0/1 unit 350 description AstroGlass-Internet
+set interfaces ge-0/0/1 unit 350 vlan-id 350
+set interfaces ge-0/0/1 unit 350 family inet address 31.120.12.1/30
+set interfaces ge-0/0/2 description spb-P-1
+set interfaces ge-0/0/2 mtu 2000
+set interfaces ge-0/0/2 unit 0 family inet address 10.10.10.45/30
+set interfaces ge-0/0/2 unit 0 family mpls
+set interfaces ge-0/0/3 description spb-P-2
+set interfaces ge-0/0/3 mtu 2000
+set interfaces ge-0/0/3 unit 0 family inet address 10.10.10.42/30
+set interfaces ge-0/0/3 unit 0 family mpls
+set interfaces lo0 description Lo0
+set interfaces lo0 unit 0 family inet filter input PROTECT-RE
+set interfaces lo0 unit 0 family inet address 172.17.1.4/32
+set routing-options router-id 172.17.1.4
+set routing-options autonomous-system 51300
+set routing-options resolution rib bgp.rtarget.0 resolution-ribs inet.0
+set protocols mpls interface ge-0/0/2.0
+set protocols mpls interface ge-0/0/3.0
+set protocols mpls interface lo0.0
+set protocols bgp log-updown
+set protocols bgp group BGP-RR type internal
+set protocols bgp group BGP-RR local-address 172.17.1.4
+set protocols bgp group BGP-RR family inet unicast
+set protocols bgp group BGP-RR family inet-vpn unicast
+set protocols bgp group BGP-RR family route-target
+set protocols bgp group BGP-RR export BGP
+set protocols bgp group BGP-RR local-as 51300
+set protocols bgp group BGP-RR neighbor 172.31.51.1 description spb-RR-2
+set protocols bgp group BGP-RR neighbor 172.31.51.1 bfd-liveness-detection minimum-interval 300
+set protocols bgp group BGP-RR neighbor 172.31.51.1 bfd-liveness-detection minimum-receive-interval 300
+set protocols bgp group BGP-RR neighbor 172.31.51.1 bfd-liveness-detection multiplier 3
+set protocols bgp group BGP-RR neighbor 172.31.50.1 description msk-RR-1
+set protocols bgp group BGP-RR neighbor 172.31.50.1 bfd-liveness-detection minimum-interval 300
+set protocols bgp group BGP-RR neighbor 172.31.50.1 bfd-liveness-detection minimum-receive-interval 300
+set protocols bgp group BGP-RR neighbor 172.31.50.1 bfd-liveness-detection multiplier 3
+set protocols bgp group CLIENTS export CLIENTS-OUT
+set protocols bgp group CLIENTS neighbor 31.120.12.2 passive
+set protocols bgp group CLIENTS neighbor 31.120.12.2 import IMPORT-ASTOGLASS-INTERNET
+set protocols bgp group CLIENTS neighbor 31.120.12.2 peer-as 32500
+set protocols ospf area 0.0.0.0 interface ge-0/0/2.0 interface-type p2p
+set protocols ospf area 0.0.0.0 interface ge-0/0/3.0 interface-type p2p
+set protocols ospf area 0.0.0.0 interface lo0.0
+set protocols ldp interface ge-0/0/2.0
+set protocols ldp interface ge-0/0/3.0
+set protocols ldp interface lo0.0
+set protocols l2circuit neighbor 172.17.1.2 interface ge-0/0/1.100 virtual-circuit-id 100
+set protocols l2circuit neighbor 172.17.1.2 interface ge-0/0/1.100 description L2VPN-AstroGlass
+set protocols l2circuit neighbor 172.17.1.2 interface ge-0/0/1.100 mtu 1600
+set policy-options prefix-list AstroGlass-Internet 95.235.16.0/24
+set policy-options prefix-list DENY 10.10.10.0/24
+set policy-options prefix-list DENY 172.17.1.0/24
+set policy-options prefix-list INFRA 10.10.10.0/24
+set policy-options prefix-list INFRA 172.17.1.0/24
+set policy-options prefix-list INFRA 172.31.50.0/23
+set policy-options prefix-list INFRA 224.0.0.0/24
+set policy-options prefix-list BGP-PEERS apply-path "protocols bgp group <*> neighbor <*>"
+set policy-options policy-statement BGP term DENY from protocol direct
+set policy-options policy-statement BGP term DENY from prefix-list-filter DENY orlonger
+set policy-options policy-statement BGP term DENY then reject
+set policy-options policy-statement BGP term P2P from protocol direct
+set policy-options policy-statement BGP term P2P from interface ge-0/0/1.350
+set policy-options policy-statement BGP term P2P then community add CLIENTS-P2P
+set policy-options policy-statement BGP term P2P then accept
+set policy-options policy-statement BGP term BGP from protocol direct
+set policy-options policy-statement BGP term BGP then accept
+set policy-options policy-statement CLIENTS-OUT term CLIENTS from community CLIENTS
+set policy-options policy-statement CLIENTS-OUT term CLIENTS from community CLIENTS-P2P
+set policy-options policy-statement CLIENTS-OUT term CLIENTS then accept
+set policy-options policy-statement CLIENTS-OUT term REJECT then reject
+set policy-options policy-statement IMPORT-ASTOGLASS-INTERNET term 1 from prefix-list AstroGlass-Internet
+set policy-options policy-statement IMPORT-ASTOGLASS-INTERNET term 1 then community add CLIENTS
+set policy-options policy-statement IMPORT-ASTOGLASS-INTERNET term 1 then accept
+set policy-options policy-statement IMPORT-ASTOGLASS-INTERNET then reject
+set policy-options community CLIENTS members 51300:100
+set policy-options community CLIENTS-P2P members 51300:200
+set firewall family inet filter PROTECT-RE term BGP from source-prefix-list BGP-PEERS
+set firewall family inet filter PROTECT-RE term BGP from port bgp
+set firewall family inet filter PROTECT-RE term BGP then accept
+set firewall family inet filter PROTECT-RE term OSPF from protocol ospf
+set firewall family inet filter PROTECT-RE term OSPF then accept
+set firewall family inet filter PROTECT-RE term LDP from source-prefix-list INFRA
+set firewall family inet filter PROTECT-RE term LDP from protocol tcp
+set firewall family inet filter PROTECT-RE term LDP from protocol udp
+set firewall family inet filter PROTECT-RE term LDP from port 646
+set firewall family inet filter PROTECT-RE term LDP then accept
+set firewall family inet filter PROTECT-RE term BFD from source-prefix-list INFRA
+set firewall family inet filter PROTECT-RE term BFD from protocol udp
+set firewall family inet filter PROTECT-RE term BFD from destination-port 3784
+set firewall family inet filter PROTECT-RE term BFD from destination-port 4784
+set firewall family inet filter PROTECT-RE term BFD then accept
+set firewall family inet filter PROTECT-RE term MPLS-OAM from source-prefix-list INFRA
+set firewall family inet filter PROTECT-RE term MPLS-OAM from protocol udp
+set firewall family inet filter PROTECT-RE term MPLS-OAM from port 3503
+set firewall family inet filter PROTECT-RE term MPLS-OAM then accept
+set firewall family inet filter PROTECT-RE term ICMP from protocol icmp
+set firewall family inet filter PROTECT-RE term ICMP from icmp-type echo-request
+set firewall family inet filter PROTECT-RE term ICMP from icmp-type echo-reply
+set firewall family inet filter PROTECT-RE term ICMP from icmp-type unreachable
+set firewall family inet filter PROTECT-RE term ICMP from icmp-type time-exceeded
+set firewall family inet filter PROTECT-RE term ICMP then policer POL-ICMP
+set firewall family inet filter PROTECT-RE term ICMP then accept
+set firewall family inet filter PROTECT-RE term TRACEROUTE from protocol udp
+set firewall family inet filter PROTECT-RE term TRACEROUTE from destination-port 33434-33534
+set firewall family inet filter PROTECT-RE term TRACEROUTE then policer POL-ICMP
+set firewall family inet filter PROTECT-RE term TRACEROUTE then accept
+set firewall family inet filter PROTECT-RE term DENY-ALL then count DENY-ALL
+set firewall family inet filter PROTECT-RE term DENY-ALL then log
+set firewall family inet filter PROTECT-RE term DENY-ALL then discard
+set firewall policer POL-ICMP if-exceeding bandwidth-limit 1m
+set firewall policer POL-ICMP if-exceeding burst-size-limit 15k
+set firewall policer POL-ICMP then discard
+set routing-instances AstroGlass instance-type vrf
+set routing-instances AstroGlass interface ge-0/0/1.250
+set routing-instances AstroGlass route-distinguisher 172.17.1.4:32500
+set routing-instances AstroGlass vrf-target target:51300:32500
+set routing-instances AstroGlass vrf-table-label
+

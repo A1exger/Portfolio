@@ -2,7 +2,7 @@
  
 **Network Engineer** · IP/MPLS · BGP · OSPF · L2/L3VPN · high-availability networks
  
-Network engineer with 6+ years in large telecom environments (MegaFon, MTS, Rostelecom) and recent work on enterprise and data-center networks. I build and operate IP/MPLS, BGP and OSPF networks, troubleshoot incidents in high-load environments, and am expanding into network automation with Ansible, Python and NetBox. Hands-on with Cisco, Juniper, Huawei and MikroTik. Junos Intermediate Routing (JIR) certified.
+Network engineer with 6+ years in large telecom environments (MegaFon, MTS, Rostelecom) and recent work on enterprise. I build and operate IP/MPLS, BGP and OSPF networks, troubleshoot incidents in high-load environments, and am expanding into network automation with Ansible, Python and NetBox. Hands-on with Cisco, Juniper, Huawei and MikroTik. Junos Intermediate Routing (JIR) certified.
  
 Open to remote roles in ISP and telecom network operations.
  
